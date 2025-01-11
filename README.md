@@ -15,6 +15,7 @@ minimal performance impact.
   - QBCore
   - ox_lib
   - object_gizmo (https://github.com/Demigod916/object_gizmo)
+  - QS-inventory (can be changed)
 
 Installation
   - Drag and drop into your standalone folder
