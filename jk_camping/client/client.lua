@@ -3,54 +3,32 @@ local prevfire = nil
 local campfireZones = {}
 local TentZoneId = {}
 
--- Spawns a TEMPORARY object for gizmo movement, then on confirm spawns the REAL object.
-    function SpawnObjectWithGizmo(model, coords, heading, onConfirm, onCancel)
+
+function SpawnObjectWithGizmo(model, coords, heading, onConfirm, onCancel)
         local hash = GetHashKey(model)
         RequestModel(hash)
         while not HasModelLoaded(hash) do
             Wait(10)
         end
-    
-        -- 1) Spawn a temporary object for the gizmo
         local gizmoObj = CreateObject(hash, coords.x, coords.y, coords.z, true, false, false)
         SetEntityHeading(gizmoObj, heading)
         SetEntityAsMissionEntity(gizmoObj, true, true)
-    
-        -- Use Gizmo on the temporary object
         exports.object_gizmo:useGizmo(gizmoObj)
-    
-        -- Wait for user confirm (Enter) or cancel (X)
         CreateThread(function()
             while true do
                 Wait(0)
-    
-                -- Confirm with ENTER (default Key 191)
                 if IsControlJustReleased(0, 191) then
                     local finalCoords = GetEntityCoords(gizmoObj)
-                    -- If you want tilt, use rotation:
                     local finalRotation = GetEntityRotation(gizmoObj, 2)
-    
                     DeleteObject(gizmoObj)
-    
-                    -- 2) Spawn the REAL object
                     local realObj = CreateObject(hash, finalCoords.x, finalCoords.y, finalCoords.z, true, false, false)
                     SetEntityAsMissionEntity(realObj, true, true)
-    
-                    -- If you want to preserve pitch/roll, use SetEntityRotation
-                    SetEntityRotation(realObj, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)
-    
-                    -- If you only need yaw, you can do:
-                    -- SetEntityHeading(realObj, GetEntityHeading(gizmoObj))
-    
+                    SetEntityRotation(realObj, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)  
                     FreezeEntityPosition(realObj, true)
-    
-                    -- Fire the callback, passing real object + final coords + final rotation
                     if onConfirm then
                         onConfirm(realObj, finalCoords, finalRotation)
                     end
                     break
-    
-                -- Cancel with X (default Key 73)
                 elseif IsControlJustReleased(0, 73) then
                     DeleteObject(gizmoObj)
                     if onCancel then
@@ -61,7 +39,6 @@ local TentZoneId = {}
             end
         end)
     end
-    
 --------------------------------------------------------------------------------
 --  TENT
 --------------------------------------------------------------------------------
@@ -70,8 +47,6 @@ RegisterNetEvent('camping:client:useTent', function()
     local ped = PlayerPedId()
     local coords = GetOffsetFromEntityInWorldCoords(ped, 0.0, 6.0, 0.0)
     local heading = GetEntityHeading(ped)
-
-    -- Request the server to spawn the tent
     TriggerServerEvent('camping:server:SpawnTent', coords, heading)
 end)
 
@@ -80,8 +55,7 @@ RegisterNetEvent('camping:client:SpawnTent', function(coords, heading, lockerID)
     local itemName = 'tent'
 
     SpawnObjectWithGizmo(tentModel, coords, heading,
-        function(realTent, finalCoords, finalHeading) -- onConfirm
-            -- Add ox_target interaction
+        function(realTent, finalCoords, finalHeading)
             exports.ox_target:addLocalEntity(realTent, {
                 {
                     name = 'tent_menu',
@@ -148,29 +122,23 @@ end)
 --------------------------------------------------------------------------------
 --  CAMPFIRE
 --------------------------------------------------------------------------------
-
--- Client-side event to start using a campfire
 RegisterNetEvent('camping:client:useCampfire', function()
     local ped = PlayerPedId()
     local coords = GetOffsetFromEntityInWorldCoords(ped, 0.0, 2.0, 0.0)
     local heading = GetEntityHeading(ped)
-
-    -- Request the server to spawn the campfire
     TriggerServerEvent('camping:server:SpawnCampfire', coords, heading)
 end)
 
--- Client-side: Spawns the campfire exactly where the Gizmo places it
 RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
     local campfireModel = 'prop_beach_fire'
     local itemName = 'campfire'
 
     SpawnObjectWithGizmo(campfireModel, coords, heading,
         function(realCampfire, finalCoords)
-            -- No manual Z offset; use finalCoords directly
             local x, y, z = table.unpack(finalCoords)
             SetEntityCoords(realCampfire, x, y, z, false, false, false, false)
 
-            -- Add the ox_target zone for interaction
+
             local zoneName = 'campfire_menu_' .. realCampfire
             local zoneId = exports.ox_target:addSphereZone({
                 coords = vector3(x, y, z),
@@ -198,15 +166,10 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                                         title = 'Extinguish Campfire',
                                         icon = 'fa-solid fa-water',
                                         onSelect = function()
-                                            -- Return campfire item
                                             TriggerServerEvent("camping:server:GiveItem", itemName, 1)
-                                            -- Remove tracking
                                             TriggerServerEvent('camping:server:RemoveActiveItem', 'campfire')
-                                            -- Delete campfire object
                                             DeleteObject(realCampfire)
-                                            -- Remove target zone
                                             exports.ox_target:removeZone(zoneName)
-                                            -- Notify
                                             lib.notify({
                                                 title = 'Camping',
                                                 description = 'Campfire extinguished.',
@@ -222,14 +185,13 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                 }
             })
 
-            -- Keep track of the zone if desired
+
             table.insert(campfireZones, zoneId)
 
-            -- Optional: Fireproof logic
+    
             CreateThread(function()
                 while DoesEntityExist(realCampfire) do
                     local playerCoords = GetEntityCoords(PlayerPedId())
-                    -- Check distance from campfire
                     if #(playerCoords - vector3(x, y, z)) < 2.0 then
                         -- Make player fireproof near the campfire
                         SetEntityProofs(PlayerPedId(), false, true, false, false, false, false, false, false)
@@ -238,7 +200,6 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                     end
                     Wait(500)
                 end
-                -- Reset proofs once campfire is removed
                 SetEntityProofs(PlayerPedId(), false, false, false, false, false, false, false, false)
             end)
 
@@ -267,8 +228,6 @@ RegisterNetEvent('camping:client:useChair', function()
     local ped = PlayerPedId()
     local coords = GetOffsetFromEntityInWorldCoords(ped, 0.0, 2.0, 0.0)
     local heading = GetEntityHeading(ped)
-
-    -- Trigger server event to request the chair spawn
     TriggerServerEvent('camping:server:SpawnChair', coords, heading)
 end)
 
@@ -277,14 +236,11 @@ RegisterNetEvent('camping:client:SpawnChair', function(coords, heading)
     local itemName   = 'campingchair'
 
     SpawnObjectWithGizmo(chairModel, coords, heading,
-        function(realChair, finalCoords, finalRotation) -- onConfirm callback
-            -- Make sure the actual entity is exactly where gizmo ended up.
-            -- This step might be optional if you already set coords/rotation in SpawnObjectWithGizmo,
-            -- but it's good to demonstrate.
+        function(realChair, finalCoords, finalRotation)
             SetEntityCoords(realChair, finalCoords.x, finalCoords.y, finalCoords.z, false, false, false, false)
             SetEntityRotation(realChair, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)
 
-            -- Add the ox_target options
+       
             exports.ox_target:addLocalEntity(realChair, {
                 {
                     name  = 'chair_menu',
@@ -310,7 +266,7 @@ RegisterNetEvent('camping:client:SpawnChair', function(coords, heading)
                 type        = 'success'
             })
         end,
-        function() -- onCancel callback
+        function()
             lib.notify({
                 title       = 'Camping',
                 description = 'Chair placement cancelled.',
@@ -320,9 +276,7 @@ RegisterNetEvent('camping:client:SpawnChair', function(coords, heading)
     )
 end)
 
---------------------------------------------------------------------------------
---  DeleteEntity (unchanged)
---------------------------------------------------------------------------------
+
 
 RegisterNetEvent('camping:client:DeleteEntity', function(entity)
     if DoesEntityExist(entity) then
@@ -330,14 +284,9 @@ RegisterNetEvent('camping:client:DeleteEntity', function(entity)
     end
 end)
 
---------------------------------------------------------------------------------
---  COOKING LOGIC (UNCHANGED)
---------------------------------------------------------------------------------
-
--- Function to start the cooking process
 function CookRecipe(recipe)
     lib.progressBar({
-        duration = recipe.cookTime or 5000, -- Default to 5 seconds if not specified
+        duration = recipe.cookTime or 5000,
         label = "Cooking " .. recipe.title .. "...",
         useWhileDead = false,
         canCancel = true,
@@ -345,13 +294,12 @@ function CookRecipe(recipe)
             move = true,
             car = true,
         },
-        anim = { -- Animation configuration
-            dict = "amb@world_human_gardener_plant@male@base", -- Animation dictionary
-            clip = "base", -- Animation clip
-            flag = 1 -- Animation flag
+        anim = { 
+            dict = "amb@world_human_gardener_plant@male@base", 
+            clip = "base", 
+            flag = 1 
         },
     }, function(canceled)
-        -- Debug message for callback execution
         print("ProgressBar Callback Triggered. Canceled: ", canceled)
 
         if not canceled then
@@ -372,11 +320,9 @@ function CookRecipe(recipe)
     end)
 end
 
--- Show Recipe Menu
+
 function ShowRecipeMenu()
     local recipeOptions = {}
-
-    -- Loop through recipes and create options dynamically
     for _, recipe in ipairs(Config.Recipes) do
         table.insert(recipeOptions, {
             title = recipe.title,
@@ -410,7 +356,7 @@ function ShowRecipeMenu()
     lib.showContext('cook_recipes_menu')
 end
 
--- Helper Function: Format Required Items into a String
+
 function GetRequirementsText(requiredItems)
     local textParts = {}
     for _, item in ipairs(requiredItems) do
@@ -418,6 +364,7 @@ function GetRequirementsText(requiredItems)
     end
     return table.concat(textParts, ", ")
 end
+
 
     return table.concat(textParts, ", ")
 end
