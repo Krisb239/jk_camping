@@ -14,7 +14,7 @@ minimal performance impact.
 - Dependancys
   - QBCore
   - ox_lib
-  - object_gizmo
+  - object_gizmo (https://github.com/Demigod916/object_gizmo)
 
 Installation
   - Drag and drop into your standalone folder
