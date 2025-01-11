@@ -3,57 +3,65 @@ local prevfire = nil
 local campfireZones = {}
 local TentZoneId = {}
 
-local function SpawnObjectWithGizmo(model, coords, heading, onConfirm, onCancel)
-    local hash = GetHashKey(model)
-    RequestModel(hash)
-    while not HasModelLoaded(hash) do
-        Wait(10)
-    end
-
-    -- 1) Spawn a temporary object for the gizmo
-    local gizmoObj = CreateObject(hash, coords.x, coords.y, coords.z, true, false, false)
-    SetEntityHeading(gizmoObj, heading)
-    SetEntityAsMissionEntity(gizmoObj, true, true)
-
-    -- Use Gizmo on the temporary object
-    exports.object_gizmo:useGizmo(gizmoObj)
-
-    -- Wait for user confirm (Enter) or cancel (X)
-    CreateThread(function()
-        while true do
-            Wait(0)
-
-            if IsControlJustReleased(0, 191) then -- ENTER Key
-                local finalCoords = GetEntityCoords(gizmoObj)
-                local finalRotation = GetEntityRotation(gizmoObj, 2)
-
-                DeleteObject(gizmoObj)
-
-                -- Instead of snapping to ground Z, just keep finalCoords
-                local realObj = CreateObject(hash, finalCoords.x, finalCoords.y, finalCoords.z, true, false, false)
-                
-                -- Preserve pitch/roll/yaw
-                SetEntityRotation(realObj, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)
-                
-                FreezeEntityPosition(realObj, true)
-                SetEntityAsMissionEntity(realObj, true, true)
-
-                if onConfirm then
-                    onConfirm(realObj, finalCoords, finalRotation)
-                end
-                break
-
-            elseif IsControlJustReleased(0, 73) then -- X Key
-                DeleteObject(gizmoObj)
-                if onCancel then
-                    onCancel()
-                end
-                break
-            end
+-- Spawns a TEMPORARY object for gizmo movement, then on confirm spawns the REAL object.
+    function SpawnObjectWithGizmo(model, coords, heading, onConfirm, onCancel)
+        local hash = GetHashKey(model)
+        RequestModel(hash)
+        while not HasModelLoaded(hash) do
+            Wait(10)
         end
-    end)
-end
-
+    
+        -- 1) Spawn a temporary object for the gizmo
+        local gizmoObj = CreateObject(hash, coords.x, coords.y, coords.z, true, false, false)
+        SetEntityHeading(gizmoObj, heading)
+        SetEntityAsMissionEntity(gizmoObj, true, true)
+    
+        -- Use Gizmo on the temporary object
+        exports.object_gizmo:useGizmo(gizmoObj)
+    
+        -- Wait for user confirm (Enter) or cancel (X)
+        CreateThread(function()
+            while true do
+                Wait(0)
+    
+                -- Confirm with ENTER (default Key 191)
+                if IsControlJustReleased(0, 191) then
+                    local finalCoords = GetEntityCoords(gizmoObj)
+                    -- If you want tilt, use rotation:
+                    local finalRotation = GetEntityRotation(gizmoObj, 2)
+    
+                    DeleteObject(gizmoObj)
+    
+                    -- 2) Spawn the REAL object
+                    local realObj = CreateObject(hash, finalCoords.x, finalCoords.y, finalCoords.z, true, false, false)
+                    SetEntityAsMissionEntity(realObj, true, true)
+    
+                    -- If you want to preserve pitch/roll, use SetEntityRotation
+                    SetEntityRotation(realObj, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)
+    
+                    -- If you only need yaw, you can do:
+                    -- SetEntityHeading(realObj, GetEntityHeading(gizmoObj))
+    
+                    FreezeEntityPosition(realObj, true)
+    
+                    -- Fire the callback, passing real object + final coords + final rotation
+                    if onConfirm then
+                        onConfirm(realObj, finalCoords, finalRotation)
+                    end
+                    break
+    
+                -- Cancel with X (default Key 73)
+                elseif IsControlJustReleased(0, 73) then
+                    DeleteObject(gizmoObj)
+                    if onCancel then
+                        onCancel()
+                    end
+                    break
+                end
+            end
+        end)
+    end
+    
 --------------------------------------------------------------------------------
 --  TENT
 --------------------------------------------------------------------------------
@@ -151,26 +159,21 @@ RegisterNetEvent('camping:client:useCampfire', function()
     TriggerServerEvent('camping:server:SpawnCampfire', coords, heading)
 end)
 
--- Client-side: Spawns the campfire with a manual offset for proper ground placement
+-- Client-side: Spawns the campfire exactly where the Gizmo places it
 RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
     local campfireModel = 'prop_beach_fire'
     local itemName = 'campfire'
-    
-    -- Adjust this offset to fine-tune how “deep” the campfire sits.
-    local manualOffsetZ = -0.10
 
     SpawnObjectWithGizmo(campfireModel, coords, heading,
         function(realCampfire, finalCoords)
-            -- The gizmo may place the campfire “floating” due to pivot point. 
-            -- We manually lower it a bit. Tweak manualOffsetZ as needed.
+            -- No manual Z offset; use finalCoords directly
             local x, y, z = table.unpack(finalCoords)
-            SetEntityCoords(realCampfire, x, y, z - manualOffsetZ, false, false, false, false)
-            --PlaceObjectOnGroundProperly(realCampfire)
+            SetEntityCoords(realCampfire, x, y, z, false, false, false, false)
 
             -- Add the ox_target zone for interaction
             local zoneName = 'campfire_menu_' .. realCampfire
             local zoneId = exports.ox_target:addSphereZone({
-                coords = vector3(x, y, z - manualOffsetZ), -- Use the same offset in the zone coords
+                coords = vector3(x, y, z),
                 radius = 1.0,
                 debug = false,
                 name = zoneName,
@@ -219,7 +222,7 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                 }
             })
 
-            -- Keep track if you want
+            -- Keep track of the zone if desired
             table.insert(campfireZones, zoneId)
 
             -- Optional: Fireproof logic
@@ -227,7 +230,7 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                 while DoesEntityExist(realCampfire) do
                     local playerCoords = GetEntityCoords(PlayerPedId())
                     -- Check distance from campfire
-                    if #(playerCoords - vector3(x, y, z - manualOffsetZ)) < 2.0 then
+                    if #(playerCoords - vector3(x, y, z)) < 2.0 then
                         -- Make player fireproof near the campfire
                         SetEntityProofs(PlayerPedId(), false, true, false, false, false, false, false, false)
                     else
@@ -235,7 +238,7 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
                     end
                     Wait(500)
                 end
-                -- Reset proofs after campfire removal
+                -- Reset proofs once campfire is removed
                 SetEntityProofs(PlayerPedId(), false, false, false, false, false, false, false, false)
             end)
 
@@ -255,13 +258,14 @@ RegisterNetEvent('camping:client:SpawnCampfire', function(coords, heading)
     )
 end)
 
+
 --------------------------------------------------------------------------------
 --  CHAIR
 --------------------------------------------------------------------------------
 
 RegisterNetEvent('camping:client:useChair', function()
     local ped = PlayerPedId()
-    local coords = GetOffsetFromEntityInWorldCoords(ped, 0.0, 2.0, 0.0) -- Spawn in front of the player
+    local coords = GetOffsetFromEntityInWorldCoords(ped, 0.0, 2.0, 0.0)
     local heading = GetEntityHeading(ped)
 
     -- Trigger server event to request the chair spawn
@@ -270,39 +274,47 @@ end)
 
 RegisterNetEvent('camping:client:SpawnChair', function(coords, heading)
     local chairModel = 'prop_skid_chair_01'
-    local itemName = 'campingchair'
+    local itemName   = 'campingchair'
 
     SpawnObjectWithGizmo(chairModel, coords, heading,
-        function(realChair)
+        function(realChair, finalCoords, finalRotation) -- onConfirm callback
+            -- Make sure the actual entity is exactly where gizmo ended up.
+            -- This step might be optional if you already set coords/rotation in SpawnObjectWithGizmo,
+            -- but it's good to demonstrate.
+            SetEntityCoords(realChair, finalCoords.x, finalCoords.y, finalCoords.z, false, false, false, false)
+            SetEntityRotation(realChair, finalRotation.x, finalRotation.y, finalRotation.z, 2, true)
+
+            -- Add the ox_target options
             exports.ox_target:addLocalEntity(realChair, {
                 {
-                    name = 'chair_menu',
-                    icon = 'fa-solid fa-box',
+                    name  = 'chair_menu',
+                    icon  = 'fa-solid fa-box',
                     label = 'Pack Chair',
                     onSelect = function()
                         DeleteObject(realChair)
                         TriggerServerEvent('camping:server:RemoveActiveItem', 'chair')
-                        TriggerServerEvent("camping:server:GiveItem", itemName, 1)
+                        TriggerServerEvent('camping:server:GiveItem', itemName, 1)
+
                         lib.notify({
-                            title = 'Camping',
+                            title       = 'Camping',
                             description = 'Chair removed.',
-                            type = 'success'
+                            type        = 'success'
                         })
                     end
                 }
             })
 
             lib.notify({
-                title = 'Camping',
+                title       = 'Camping',
                 description = 'Chair placed successfully.',
-                type = 'success'
+                type        = 'success'
             })
         end,
-        function()
+        function() -- onCancel callback
             lib.notify({
-                title = 'Camping',
+                title       = 'Camping',
                 description = 'Chair placement cancelled.',
-                type = 'error'
+                type        = 'error'
             })
         end
     )
@@ -404,5 +416,8 @@ function GetRequirementsText(requiredItems)
     for _, item in ipairs(requiredItems) do
         table.insert(textParts, item.amount .. "x " .. item.name)
     end
+    return table.concat(textParts, ", ")
+end
+
     return table.concat(textParts, ", ")
 end
