@@ -37,7 +37,7 @@ Usage
       
 - Use the Camping Chair
     - Similar to the tent/campfire, players can place a chair.
-      Interact to sit down or pack up the chair.
+      Interact to sit down or pack up the chair. (chair sitting script required, it is not built in)
       
 - Cooking
     - Interact with the campfire, select “Cook”.
